@@ -10,34 +10,34 @@ class ControlCmd:
     """Control DM_CAN motors."""
     
     def __init__(self, config_path="motor_config.yaml"):
-        self.serial_device = serial.Serial('/dev/ttyACM0', 921600, timeout=0.5)
+        self.serial_device = serial.Serial('/dev/ttyRedDogRight', 921600, timeout=0.5)
         self.motor_control = MotorControl(self.serial_device)
 
-        self.dm_motor1 = Motor(DM_Motor_Type.DM4310, 0x01, 0x11)
-        self.dm_motor2 = Motor(DM_Motor_Type.DM4310, 0x02, 0x21)
-        self.dm_motor3 = Motor(DM_Motor_Type.DM4310, 0x03, 0x31)
+        self.dm_motor1 = Motor(DM_Motor_Type.DM4310, 0x06, 0x16)
+        # self.dm_motor2 = Motor(DM_Motor_Type.DM4310, 0x06, 0x16)
+        # self.dm_motor3 = Motor(DM_Motor_Type.DM4310, 0x07, 0x17)
         
         self.motor_control.addMotor(self.dm_motor1)
-        self.motor_control.addMotor(self.dm_motor2)
-        self.motor_control.addMotor(self.dm_motor3)
+        # self.motor_control.addMotor(self.dm_motor2)
+        # self.motor_control.addMotor(self.dm_motor3)
 
         if self.motor_control.switchControlMode(self.dm_motor1, Control_Type.MIT):
             print("DM_CAN Motor1: switched to MIT control mode")
         
-        if self.motor_control.switchControlMode(self.dm_motor2, Control_Type.MIT):
-            print("DM_CAN Motor2: switched to MIT control mode")
+        # if self.motor_control.switchControlMode(self.dm_motor2, Control_Type.MIT):
+        #     print("DM_CAN Motor2: switched to MIT control mode")
         
-        if self.motor_control.switchControlMode(self.dm_motor3, Control_Type.MIT):
-            print("DM_CAN Motor3: switched to MIT control mode")
+        # if self.motor_control.switchControlMode(self.dm_motor3, Control_Type.MIT):
+        #     print("DM_CAN Motor3: switched to MIT control mode")
 
         self.motor_control.save_motor_param(self.dm_motor1)
         self.motor_control.enable(self.dm_motor1)
 
-        self.motor_control.save_motor_param(self.dm_motor2)
-        self.motor_control.enable(self.dm_motor2)
+        # self.motor_control.save_motor_param(self.dm_motor2)
+        # self.motor_control.enable(self.dm_motor2)
 
-        self.motor_control.save_motor_param(self.dm_motor3)
-        self.motor_control.enable(self.dm_motor3)
+        # self.motor_control.save_motor_param(self.dm_motor3)
+        # self.motor_control.enable(self.dm_motor3)
 
         self.Is_Run = False
         self.run_thread = None 
