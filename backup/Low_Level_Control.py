@@ -13,7 +13,7 @@ class ControlCmd:
         self.serial_device = serial.Serial('/dev/ttyRedDogRight', 921600, timeout=0.5)
         self.motor_control = MotorControl(self.serial_device)
 
-        self.dm_motor1 = Motor(DM_Motor_Type.DM4310, 0x06, 0x16)
+        self.dm_motor1 = Motor(DM_Motor_Type.DM4310, 0x07, 0x17)
         # self.dm_motor2 = Motor(DM_Motor_Type.DM4310, 0x06, 0x16)
         # self.dm_motor3 = Motor(DM_Motor_Type.DM4310, 0x07, 0x17)
         

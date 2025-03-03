@@ -239,7 +239,7 @@ class MotorControl:
         self.recv()  # receive the data from serial port
 
     def recv(self):
-        time.sleep(0.05)
+        time.sleep(0.0004)
         # 把上次没有解析完的剩下的也放进来
         data_recv = b''.join([self.data_save, self.serial_.read_all()])
         if not data_recv:

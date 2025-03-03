@@ -36,6 +36,7 @@ class MotorController(Node):
         self.start_time = None 
         self.transition_duration = 1.2
         self.command_type = None  
+        self.last_command = None
 
         self.kp = 3
         self.kq = 0.1
@@ -43,13 +44,23 @@ class MotorController(Node):
         self.get_logger().info("Motor controller started, waiting for command...")
 
     def command_callback(self, msg):
-        command = msg.data
+        command = msg.data.strip()
+
+        if self.target_angles is not None:
+            self.get_logger().info(f"Ignoring '{command}' command, movement in progress.")
+            return
+
+        if command == self.last_command:
+            self.get_logger().info(f"Ignoring duplicate command '{command}'.")
+            return
+
         if command == "s":
             self.target_angles = self.command_joint_angles.copy()
             self.start_time = time.time() 
             self.command_type = "s"
             self.kp = 10
             self.kq = 0.5
+            self.last_command = command
             self.get_logger().info("Received 's' command, transitioning to target angles.")
         elif command == "r":
             self.target_angles = self.initial_joint_angles.copy()
@@ -57,6 +68,7 @@ class MotorController(Node):
             self.command_type = "r"
             self.kp = 10
             self.kq = 0.5
+            self.last_command = command
             self.get_logger().info("Received 'r' command, returning to initial angles.")
         else:
             self.get_logger().info("Unknown command. Only 's' (start) and 'r' (reset) are supported.")
@@ -79,6 +91,7 @@ class MotorController(Node):
             self.current_angles = self.target_angles
             self.target_angles = None
             self.command_type = None
+            self.get_logger().info("Movement completed, ready for next command.")
 
     def publish_joint_states(self):
         self.apply_tanh_transition()

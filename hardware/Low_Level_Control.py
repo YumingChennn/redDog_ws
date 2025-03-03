@@ -43,10 +43,9 @@ class MotorManager:
         self.control_cmd = DualControlCmd()
         self.lock = threading.Lock()
 
-        self.Is_Run_1 = False
-        self.Is_Run_2 = False
-        self.run_thread_1 = None
-        self.run_thread_2 = None
+        self.Is_Run = False
+
+        self.run_thread = None
 
         self.jointAngle_data = {}
         self.joint_angles = None
@@ -78,67 +77,50 @@ class MotorManager:
                 print(f"Warning: {key} angle {self.jointAngle_data[key]} is out of bounds!")
                 self.jointAngle_data[key] = max(min(self.jointAngle_data[key], self.motor_limits[key][1]), self.motor_limits[key][0])
 
-        self.joint_angles_1 = np.array([[self.jointAngle_data['frd'],  self.jointAngle_data['rrd']],
-                                      [self.jointAngle_data['fru'],  self.jointAngle_data['rru']],
-                                      [self.jointAngle_data['frh'],  self.jointAngle_data['rrh']]])
-        
-        self.joint_angles_2 = np.array([[self.jointAngle_data['fld'],  self.jointAngle_data['rld']],
-                                      [self.jointAngle_data['flu'],  self.jointAngle_data['rlu']],
-                                      [self.jointAngle_data['flh'],  self.jointAngle_data['rlh']]])
+        self.joint_angles = np.array([[self.jointAngle_data['frd'],    self.jointAngle_data['fld'], self.jointAngle_data['rrd'],  self.jointAngle_data['rld']],
+                                      [self.jointAngle_data['fru'],    self.jointAngle_data['flu'], self.jointAngle_data['rru'],  self.jointAngle_data['rlu']],
+                                      [self.jointAngle_data['frh'],    self.jointAngle_data['flh'], self.jointAngle_data['rrh'],  self.jointAngle_data['rlh']]]) 
 
     # [Previous _run_motor_1, _run_motor_2, run, stop, reset, read methods remain the same]
-    def _run_motor_1(self):
-        while self.Is_Run_1:
-            self.get_jointAngle_data()
-            self.control_cmd.motor_position_control_1(self.joint_angles_1, self.kp_kd_list)
-            time.sleep(0.002)
+    def _run_motor(self):
+        prev_time = time.time()
+        count = 0
+        while self.Is_Run:
+            start_time = time.time()
 
-    def _run_motor_2(self):
-        while self.Is_Run_2:
-            self.control_cmd.motor_position_control_2(self.joint_angles_2, self.kp_kd_list)
-            time.sleep(0.002)
+            self.get_jointAngle_data()
+            self.control_cmd.motor_position_control(self.joint_angles, self.kp_kd_list)
+            joint_states = self.control_cmd.read()
+            
+            count += 1
+            elapsed_time = time.time() - prev_time 
+            if elapsed_time >= 1.0: 
+                print(f"Motor control frequency: {count} Hz")
+                count = 0
+                prev_time = time.time()
 
     def run(self):
-        threads = []
-        if not self.Is_Run_1:
-            self.Is_Run_1 = True
+        if not self.Is_Run:
+            self.Is_Run = True
             for motor in self.control_cmd.motors_1.values():
                 self.control_cmd.motor_control_1.enable(motor)
-            self.run_thread_1 = threading.Thread(target=self._run_motor_1)
-            threads.append(self.run_thread_1)
-            print("Motors Set 1 started running...")
+            self.run_thread = threading.Thread(target=self._run_motor)
+            self.run_thread.start()      
 
-        if not self.Is_Run_2:
-            self.Is_Run_2 = True
-            for motor in self.control_cmd.motors_2.values():
-                self.control_cmd.motor_control_2.enable(motor)
-            self.run_thread_2 = threading.Thread(target=self._run_motor_2)
-            threads.append(self.run_thread_2)
-            print("Motors Set 2 started running...")
-        
-        for t in threads:
-            t.start()
-    
     def stop(self):
         self.executor.shutdown()
         self.spin_thread.join() 
 
-        self.Is_Run_1 = False
-        if self.run_thread_1 and self.run_thread_1.is_alive():
-            self.run_thread_1.join()
+        self.Is_Run = False
+        if self.run_thread and self.run_thread.is_alive():
+            self.run_thread.join()
         print("Motors Set 1 stopped running")
-
-        self.Is_Run_2 = False
-        if self.run_thread_2 and self.run_thread_2.is_alive():
-            self.run_thread_2.join()
-        print("Motors Set 2 stopped running")
 
 class DualControlCmd:
     """Control two sets of DM_CAN motors using different serial ports."""
-    def __init__(self, config_path="config/motor_config.yaml"):
+    def __init__(self):
         self.setup_serials()
         self.setup_motors()
-        self.load_config(config_path)
         self.lock = threading.Lock()
 
     # [Previous setup_serials, setup_motors, load_config methods remain the same]
@@ -182,143 +164,82 @@ class DualControlCmd:
             self.motor_control_2.save_motor_param(motor)
             self.motor_control_2.enable(motor)
 
-        self.leg_motor_list_1 = [
-                        [self.motors_1['FR_lower'],   self.motors_1['RR_lower']  ],
-                        [self.motors_1['FR_higher'],  self.motors_1['RR_higher'] ],
-                        [self.motors_1['FR_hip'],     self.motors_1['RR_hip'],   ]
+        self.leg_motor_list = [
+                        [self.motors_1['FR_lower'],   self.motors_2['FL_lower'],   self.motors_1['RR_lower'],    self.motors_2['RL_lower']  ],
+                        [self.motors_1['FR_higher'],  self.motors_2['FL_higher'],  self.motors_1['RR_higher'],   self.motors_2['RL_higher']],
+                        [self.motors_1['FR_hip'],     self.motors_2['FL_hip'],     self.motors_1['RR_hip'],      self.motors_2['RL_hip']]
         ]
-
-        self.leg_motor_list_2 = [
-                        [self.motors_2['FL_lower'],   self.motors_2['RL_lower']  ],
-                        [self.motors_2['FL_higher'],  self.motors_2['RL_higher'] ],
-                        [self.motors_2['FL_hip'],     self.motors_2['RL_hip']    ]
-        ]
-
-    def load_config(self, config_path):
-        with open(config_path, "r") as file:
-            self.config = yaml.safe_load(file)
-        
-        self.motor_limits_1 = {}
-        self.motor_limits_2 = {}
-        
-        for motor_id in self.motors_1:
-            limits = self.config.get("motor_limits", {}).get(f"motor{motor_id}", {})
-            self.motor_limits_1[motor_id] = {
-                "min_position": limits.get("min_position", -2),
-                "max_position": limits.get("max_position", 2),
-                "stop_on_exceed": limits.get("stop_on_exceed", True)
-            }
-            
-        for motor_id in self.motors_2:
-            limits = self.config.get("motor_limits", {}).get(f"motor{motor_id}", {})
-            self.motor_limits_2[motor_id] = {
-                "min_position": limits.get("min_position", -2),
-                "max_position": limits.get("max_position", 2),
-                "stop_on_exceed": limits.get("stop_on_exceed", True)
-            }
 
     def reset(self, motor_set=None):
-        threads = []
         if motor_set in [None, 'set1']:
-            t1 = threading.Thread(target=self.motor_position_control_1)
-            threads.append(t1)
-            print("Motors Set 1 reset")
-
-        if motor_set in [None, 'set2']:
-            t2 = threading.Thread(target=self.motor_position_control_2)
-            threads.append(t2)
-            print("Motors Set 2 reset")
-
-        for t in threads:
-            t.start()
-
-        for t in threads:
-            t.join()
-    
-    def motor_position_control_1(self, position=None, kp_kd_list=None):
-        with self.lock:
-            if position is None:
-                position = [[     3 ,    -3 ], 
-                            [  -1.6 ,   1.6 ], 
-                            [     0 ,     0 ]] 
-                # position = [[     0 ,     0], 
-                #             [     0 ,     0], 
-                #             [     0 ,     0]]
-            
-            if kp_kd_list is None:
-                kp_kd_list = [ 3, 0.1]
-                
-            for i, motor_list in enumerate(self.leg_motor_list_1):
-                for j, motor in enumerate(motor_list):
-                    self.motor_control_1.controlMIT(motor, kp_kd_list[0], kp_kd_list[1], position[i][j], 0, 0)
+            reset_thread = threading.Thread(target=self.motor_position_control)
+            reset_thread.start()
+            print("Motors Set reset")
+            reset_thread.join()
         
-    def motor_position_control_2(self, position=None, kp_kd_list=None):
-        with self.lock:  
-            if position is None:
-                position = [[    -3 ,     3], 
-                            [   1.6 ,  -1.6], 
-                            [     0 ,     0]] 
-                # position = [[     0 ,     0], 
-                #             [     0 ,     0], 
-                #             [     0 ,     0]] 
+    def motor_position_control(self, position=None, kp_kd_list=None):
+        if position is None:
+            position = [[     3 ,    -3,   -3,     3 ], 
+                        [  -1.6 ,   1.6,  1.6,  -1.6 ], 
+                        [     0 ,     0,    0,     0]] 
 
-            if kp_kd_list is None:
-                kp_kd_list = [ 3, 0.1]
-
-            for i, motor_list in enumerate(self.leg_motor_list_2):
-                for j, motor in enumerate(motor_list):
+        if kp_kd_list is None:
+            kp_kd_list = [ 3, 0.1]
+        
+        for i, motor_list in enumerate(self.leg_motor_list):
+            for j, motor in enumerate(motor_list):
+                if j in [0, 2]: 
+                    self.motor_control_1.controlMIT(motor, kp_kd_list[0], kp_kd_list[1], position[i][j], 0, 0)
+                elif j in [1, 3]:  
                     self.motor_control_2.controlMIT(motor, kp_kd_list[0], kp_kd_list[1], position[i][j], 0, 0)
 
     def read(self):
         self.update_joint_state()
-        np.set_printoptions(suppress=True)  # 禁用科學記號
+        np.set_printoptions(suppress=True) 
         # print(self.joint_positions / math.pi * 180 )
-        print(self.joint_positions)
+        # print(self.joint_positions)
+        return self.joint_positions
 
     def update_joint_state(self):
-        for motor in self.motors_1.values():
-            self.motor_control_1.refresh_motor_status(motor)
-
-        for motor in self.motors_2.values():
-            self.motor_control_2.refresh_motor_status(motor)
-
+        for i, motor_list in enumerate(self.leg_motor_list):
+            for j, motor in enumerate(motor_list):
+                if j in [0, 2]: 
+                    self.motor_control_1.refresh_motor_status(motor)
+                elif j in [1, 3]:  
+                    self.motor_control_2.refresh_motor_status(motor)
         self.joint_positions = np.zeros((3, 4))
 
-        for i, (motor_list_1, motor_list_2) in enumerate(zip(self.leg_motor_list_1, self.leg_motor_list_2)):
+        for i, motor_list in enumerate(self.leg_motor_list):
             self.joint_positions[i] = [
-                motor_list_1[0].getPosition() , motor_list_2[0].getPosition() ,
-                motor_list_1[1].getPosition() , motor_list_2[1].getPosition() 
+                motor_list[0].getPosition() , motor_list[1].getPosition() ,
+                motor_list[2].getPosition() , motor_list[3].getPosition() 
             ]
 
-    # New enable/disable methods
     def enable_motor(self):
-        """Enable motors. Can specify 'set1', 'set2', or None for both."""
-        for motor in self.motors_1.values():
-            self.motor_control_1.enable(motor)
-        print("Motors Set 1 enabled")
-
-        for motor in self.motors_2.values():
-            self.motor_control_2.enable(motor)
-        print("Motors Set 2 enabled")
+        for i, motor_list in enumerate(self.leg_motor_list):
+            for j, motor in enumerate(motor_list):
+                if j in [0, 2]: 
+                    self.motor_control_1.enable(motor)
+                elif j in [1, 3]:  
+                    self.motor_control_2.enable(motor)
+        print("enable the motor")
 
     def disable_motor(self):
-        """Disable motors. Can specify 'set1', 'set2', or None for both."""
-        for motor in self.motors_1.values():
-            self.motor_control_1.disable(motor)
-        print("Motors Set 1 disabled")
-
-        for motor in self.motors_2.values():
-            self.motor_control_2.disable(motor)
-        print("Motors Set 2 disabled")
+        for i, motor_list in enumerate(self.leg_motor_list):
+            for j, motor in enumerate(motor_list):
+                if j in [0, 2]: 
+                    self.motor_control_1.disable(motor)
+                elif j in [1, 3]:  
+                    self.motor_control_2.disable(motor)
+        print("Disable the motor")
 
     def set_zero(self):
-        for motor in self.motors_1.values():
-            self.motor_control_1.set_zero_position(motor)
-
-        for motor in self.motors_2.values():
-            self.motor_control_2.set_zero_position(motor)
-
-        """Set the zero position."""
+        for i, motor_list in enumerate(self.leg_motor_list):
+            for j, motor in enumerate(motor_list):
+                if j in [0, 2]: 
+                    self.motor_control_1.set_zero_position(motor)
+                elif j in [1, 3]:  
+                    self.motor_control_2.set_zero_position(motor)
         print("Motor zero position set")
 
     def closeSystem(self):
