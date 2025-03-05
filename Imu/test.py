@@ -9,7 +9,27 @@ from rclpy.node import Node
 from transformations import quaternion_from_euler
 from std_msgs.msg import String
 from sensor_msgs.msg import Imu
+from geometry_msgs.msg import Vector3
 from tf_transformations import quaternion_matrix
+from filterpy.kalman import ExtendedKalmanFilter
+
+
+class EKFVelocityEstimator:
+    def __init__(self):
+        self.ekf = ExtendedKalmanFilter(dim_x=3, dim_z=3)
+        self.ekf.x = np.zeros(3)  # Initial velocity [vx, vy, vz]
+        self.ekf.F = np.eye(3)  # Identity matrix (acceleration directly affects velocity)
+        self.ekf.Q = np.eye(3) * 0.01  # Process noise covariance
+        self.ekf.R = np.eye(3) * 0.1  # Measurement noise covariance
+        self.ekf.H = np.eye(3)  # Direct measurement mapping
+        self.ekf.P *= 1.0
+
+    def predict(self, acceleration, dt):
+        self.ekf.x += np.array(acceleration) * dt  # v = v + a * dt
+        self.ekf.P = self.ekf.F @ self.ekf.P @ self.ekf.F.T + self.ekf.Q
+
+    def update(self, measurement):
+        self.ekf.update(measurement)
 
 key = 0
 flag = 0
@@ -78,12 +98,10 @@ class IMUDriverNode(Node):
     def __init__(self, port_name):
         super().__init__('angle_publisher_node')
 
-        # 初始化IMU消息
-        self.imu_msg = Imu()
-        self.imu_msg.header.frame_id = 'imu_link'
-
         # 创建IMU数据发布器
         self.imu_pub = self.create_publisher(Imu, 'imu/data_raw', 1)
+        self.ekf = EKFVelocityEstimator()
+        self.last_time = time.time()
 
         # 启动IMU驱动线程
         self.driver_thread = threading.Thread(target=self.driver_loop, args=(port_name,))
@@ -123,6 +141,13 @@ class IMUDriverNode(Node):
                             self.imu_data()
 
     def imu_data(self):
+        current_time = time.time()
+        dt = current_time - self.last_time
+        self.last_time = current_time
+
+        imu_msg = Imu()
+        imu_msg.header.stamp = self.get_clock().now().to_msg()
+        imu_msg.header.frame_id = 'imu_link'
 
         OFFSET_ANGLE_roll = 179.0
         OFFSET_ANGLE_pitch = 0.60
@@ -141,28 +166,29 @@ class IMUDriverNode(Node):
         angle_degree[2] = angle_degree[2]
 
 
-        # 更新IMU消息
-        self.imu_msg.header.stamp = self.get_clock().now().to_msg()
         
-        self.imu_msg.linear_acceleration.x = float(acceleration[0])
-        self.imu_msg.linear_acceleration.y = float(acceleration[1])
-        self.imu_msg.linear_acceleration.z = float(acceleration[2])
+        imu_msg.linear_acceleration.x = float(acceleration[0])
+        imu_msg.linear_acceleration.y = float(acceleration[1])
+        imu_msg.linear_acceleration.z = float(acceleration[2])
 
-        self.imu_msg.angular_velocity.x = float(angularVelocity[0])
-        self.imu_msg.angular_velocity.y = float(angularVelocity[1])
-        self.imu_msg.angular_velocity.z = float(angularVelocity[2])
+        imu_msg.angular_velocity.x = float(angularVelocity[0])
+        imu_msg.angular_velocity.y = float(angularVelocity[1])
+        imu_msg.angular_velocity.z = float(angularVelocity[2])
 
         angle_radian = [angle_degree[i] * math.pi / 180 for i in range(3)]
-
         qua = quaternion_from_euler(angle_radian[0], angle_radian[1], angle_radian[2])
 
-        self.imu_msg.orientation.x = qua[0]
-        self.imu_msg.orientation.y = qua[1]
-        self.imu_msg.orientation.z = qua[2]
-        self.imu_msg.orientation.w = qua[3]
+        imu_msg.orientation.x = qua[0]
+        imu_msg.orientation.y = qua[1]
+        imu_msg.orientation.z = qua[2]
+        imu_msg.orientation.w = qua[3]
+
+        self.ekf.predict(acceleration, dt)
+        estimated_velocity = self.ekf.ekf.x
+        self.get_logger().info(f"Estimated Velocity: {estimated_velocity}")
         
         # 发布IMU消息
-        self.imu_pub.publish(self.imu_msg)
+        self.imu_pub.publish(imu_msg)
 
         # self.get_logger().info(str(angularVelocity[1]))
         self.get_logger().info("Published angles: Roll={}, \nPitch={}, \nYaw={}".format(angle_degree[0], angle_degree[1], angle_degree[2]))

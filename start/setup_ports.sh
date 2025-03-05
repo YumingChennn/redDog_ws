@@ -11,6 +11,10 @@ SUBSYSTEM=="tty", ATTRS{idVendor}=="1d6b", ATTRS{idProduct}=="0002", KERNEL=="tt
 
 # Left Port
 SUBSYSTEM=="tty", ATTRS{idVendor}=="2e88", ATTRS{idProduct}=="4603", KERNEL=="ttyACM1", SYMLINK+="ttyRedDogRight", MODE="0666"
+
+# Imu
+SUBSYSTEM=="tty", ATTRS{idVendor}=="10c4", ATTRS{idProduct}=="ea60", KERNEL=="ttyUSB0", SYMLINK+="ttyIMU", MODE="0666"
+
 EOL
 
 # Reload udev rules to apply the new configurations
@@ -19,4 +23,4 @@ sudo udevadm trigger
 
 # Inform the user
 echo "Udev rules have been successfully updated."
-echo "You can now access the devices using /dev/ttyRedDogRight and /dev/ttyRedDogLeft"
+echo "You can now access the devices using /dev/ttyRedDogRight , /dev/ttyRedDogLeft and /dev/ttyIMU"

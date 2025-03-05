@@ -66,8 +66,6 @@ class MotorManager:
         self.kp_kd_list = None
 
         self.motor_turn = True
-        self.command_arrive = True
-        self.run_interval = 1 / 50  # _run_motor() 限制到 50Hz
 
         with open(config_path, "r") as file:
             self.motor_limits = yaml.safe_load(file)["motor_limits"]
@@ -96,39 +94,41 @@ class MotorManager:
                 print(f"Warning: {key} angle {self.jointAngle_data[key]} is out of bounds!")
                 self.jointAngle_data[key] = max(min(self.jointAngle_data[key], self.motor_limits[key][1]), self.motor_limits[key][0])
 
-        self.joint_angles = np.array([[self.jointAngle_data['frd'],    self.jointAngle_data['fld'], self.jointAngle_data['rrd'],  self.jointAngle_data['rld']],
-                                      [self.jointAngle_data['fru'],    self.jointAngle_data['flu'], self.jointAngle_data['rru'],  self.jointAngle_data['rlu']],
-                                      [self.jointAngle_data['frh'],    self.jointAngle_data['flh'], self.jointAngle_data['rrh'],  self.jointAngle_data['rlh']]]) 
+        self.joint_angles = np.array([[self.jointAngle_data['frd'],       self.jointAngle_data['fld']],
+                                      [self.jointAngle_data['fru'],       self.jointAngle_data['flu']],
+                                      [self.jointAngle_data['frh'],       self.jointAngle_data['flh']]]) 
+
+        # self.joint_angles = np.array([[self.jointAngle_data['frd'],    self.jointAngle_data['fld'], self.jointAngle_data['rrd'],  self.jointAngle_data['rld']],
+        #                               [self.jointAngle_data['fru'],    self.jointAngle_data['flu'], self.jointAngle_data['rru'],  self.jointAngle_data['rlu']],
+        #                               [self.jointAngle_data['frh'],    self.jointAngle_data['flh'], self.jointAngle_data['rrh'],  self.jointAngle_data['rlh']]]) 
 
     def _run_motor(self):
         prev_time = time.time()
         count = 0
 
         while self.Is_Run:
-            with self.condition:
-                while not self.motor_turn:  # 只有 motor_turn=True 時才執行
-                    self.condition.wait()
+            
+            # with self.condition:
+            #     while not self.motor_turn:  # 只有 motor_turn=True 時才執行
+            #         self.condition.wait()
+                
+            #     self.get_jointAngle_data()
+            #     self.control_cmd.motor_position_control(self.joint_angles, self.kp_kd_list)
+                
+            #     self.motor_turn = False  # **切換權限給 _read_motor()**
+            #     self.condition.notify()  # 通知 _read_motor() 可以執行
 
-                start_time = time.time()  # 記錄開始執行的時間
-                
-                self.get_jointAngle_data()
-                self.control_cmd.motor_position_control(self.joint_angles, self.kp_kd_list)
-                
-                self.motor_turn = False  # **切換權限給 _read_motor()**
-                self.condition.notify()  # 通知 _read_motor() 可以執行
+            # self.get_jointAngle_data()
+            self.control_cmd.motor_position_control(np.zeros((3, 1)), self.kp_kd_list)
+
 
             count += 1
+            print("start",count)
             elapsed_time = time.time() - prev_time
             if elapsed_time >= 1.0:
                 print(f"Motor control frequency: {count} Hz")
                 count = 0
                 prev_time = time.time()
-
-            # 計算剩餘時間，確保 _run_motor() 保持在 50Hz
-            execution_time = time.time() - start_time
-            sleep_time = max(0, self.run_interval - execution_time)
-            time.sleep(sleep_time)  # 控制執行頻率為 50Hz
-
 
     def _read_motor(self):
         prev_time = time.time()
@@ -138,20 +138,15 @@ class MotorManager:
             with self.condition:
                 while self.motor_turn:  # 只有 motor_turn=False 時才執行
                     self.condition.wait()
-                    
+                
                 self.control_cmd.refresh_motor()
-                self.control_cmd.update_joint_state()  # 放在 notify() 之後執行
-                self.control_cmd.refresh_motor()
-                self.control_cmd.update_joint_state()  # 放在 notify() 之後執行
-                self.control_cmd.refresh_motor()
-                self.control_cmd.update_joint_state()  # 放在 notify() 之後執行
-                self.control_cmd.refresh_motor()
+                
                 self.motor_turn = True  # **切換權限給 _run_motor()**
                 self.condition.notify()  # 通知 _run_motor() 可以執行
             
             self.control_cmd.update_joint_state()  # 放在 notify() 之後執行
 
-            count += 4
+            count += 1
             elapsed_time = time.time() - prev_time
             if elapsed_time >= 1.0:
                 print(f"Motor reading frequency: {count} Hz")
@@ -171,8 +166,8 @@ class MotorManager:
 
             self.run_thread = threading.Thread(target=self._run_motor)
             self.run_thread.start()     
-            self.read_thread = threading.Thread(target=self._read_motor) 
-            self.read_thread.start()   
+            # self.read_thread = threading.Thread(target=self._read_motor) 
+            # self.read_thread.start()   
 
     def stop(self):
         self.executor.shutdown()
@@ -181,7 +176,7 @@ class MotorManager:
         self.Is_Run = False
         if self.run_thread and self.run_thread.is_alive():
             self.run_thread.join()
-            self.read_thread.join()
+            # self.read_thread.join()
         print("Motors Set stopped running")
 
 class DualControlCmd:
@@ -232,12 +227,18 @@ class DualControlCmd:
                 print(f"DM_CAN Motor {motor.SlaveID} (Set 2): switched to MIT control mode")
             self.motor_control_2.save_motor_param(motor)
             self.motor_control_2.enable(motor)
-
+        
         self.leg_motor_list = [
-                        [self.motors_1['FR_lower'],   self.motors_2['FL_lower'],   self.motors_1['RR_lower'],    self.motors_2['RL_lower']  ],
-                        [self.motors_1['FR_higher'],  self.motors_2['FL_higher'],  self.motors_1['RR_higher'],   self.motors_2['RL_higher']],
-                        [self.motors_1['FR_hip'],     self.motors_2['FL_hip'],     self.motors_1['RR_hip'],      self.motors_2['RL_hip']]
+                        [self.motors_1['FR_lower']],
+                        [self.motors_1['FR_higher']],
+                        [self.motors_1['FR_hip']]
         ]
+
+        # self.leg_motor_list = [
+        #                 [self.motors_1['FR_lower'],   self.motors_2['FL_lower'],   self.motors_1['RR_lower'],    self.motors_2['RL_lower']  ],
+        #                 [self.motors_1['FR_higher'],  self.motors_2['FL_higher'],  self.motors_1['RR_higher'],   self.motors_2['RL_higher']],
+        #                 [self.motors_1['FR_hip'],     self.motors_2['FL_hip'],     self.motors_1['RR_hip'],      self.motors_2['RL_hip']]
+        # ]
 
     def reset(self):
         reset_thread = threading.Thread(target=self.motor_position_control)
@@ -261,6 +262,15 @@ class DualControlCmd:
                 elif j in [1, 3]:  
                     self.motor_control_2.controlMIT(motor, kp_kd_list[0], kp_kd_list[1], position[i][j], 0, 0)
 
+    def enable_motor(self):
+        for i, motor_list in enumerate(self.leg_motor_list):
+            for j, motor in enumerate(motor_list):
+                if j in [0, 2]: 
+                    self.motor_control_1.enable(motor)
+                elif j in [1, 3]:  
+                    self.motor_control_2.enable(motor)
+        print("enable the motor")
+
     def read(self):
         self.refresh_motor()
         self.update_joint_state()
@@ -275,6 +285,7 @@ class DualControlCmd:
                     self.motor_control_1.refresh_motor_status(motor)
                 elif j in [1, 3]:  
                     self.motor_control_2.refresh_motor_status(motor)
+                    
 
     def update_joint_state(self):
         for i, motor_list in enumerate(self.leg_motor_list):

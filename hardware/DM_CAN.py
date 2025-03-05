@@ -87,6 +87,7 @@ class MotorControl:
             print("Serial port is open")
             serial_device.close()
         self.serial_.open()
+        self.recv_count = 0
 
     def controlMIT(self, DM_Motor, kp: float, kd: float, q: float, dq: float, tau: float):
         """
@@ -239,9 +240,11 @@ class MotorControl:
         self.recv()  # receive the data from serial port
 
     def recv(self):
-        time.sleep(0.0004)
-        # 把上次没有解析完的剩下的也放进来
-        data_recv = b''.join([self.data_save, self.serial_.read_all()])
+        # self.recv_count += 1  # 每次進入 recv() 時增加計數
+        # print(f"recv() 已執行 {self.recv_count} 次 {SlveID}")
+        # time.sleep(0.0004)
+        raw_serial_data = self.serial_.read_all()  # 讀取 serial 數據
+        data_recv = b''.join([self.data_save, raw_serial_data])
         if not data_recv:
             print("Warning: No data received!")
             return

@@ -105,17 +105,8 @@ class MotorManager:
         count = 0
 
         while self.Is_Run:
-            with self.condition:
-                while not self.motor_turn:  # 只有 motor_turn=True 時才執行
-                    self.condition.wait()
-
-                start_time = time.time()  # 記錄開始執行的時間
-                
-                self.get_jointAngle_data()
-                self.control_cmd.motor_position_control(self.joint_angles, self.kp_kd_list)
-                
-                self.motor_turn = False  # **切換權限給 _read_motor()**
-                self.condition.notify()  # 通知 _read_motor() 可以執行
+            self.get_jointAngle_data()
+            self.control_cmd.motor_position_control(self.joint_angles, self.kp_kd_list)
 
             count += 1
             elapsed_time = time.time() - prev_time
@@ -124,39 +115,22 @@ class MotorManager:
                 count = 0
                 prev_time = time.time()
 
-            # 計算剩餘時間，確保 _run_motor() 保持在 50Hz
-            execution_time = time.time() - start_time
-            sleep_time = max(0, self.run_interval - execution_time)
-            time.sleep(sleep_time)  # 控制執行頻率為 50Hz
 
 
     def _read_motor(self):
-        prev_time = time.time()
-        count = 0
+        prev_time_read = time.time()
+        count_read = 0
 
         while self.Is_Run:
-            with self.condition:
-                while self.motor_turn:  # 只有 motor_turn=False 時才執行
-                    self.condition.wait()
-                    
-                self.control_cmd.refresh_motor()
-                self.control_cmd.update_joint_state()  # 放在 notify() 之後執行
-                self.control_cmd.refresh_motor()
-                self.control_cmd.update_joint_state()  # 放在 notify() 之後執行
-                self.control_cmd.refresh_motor()
-                self.control_cmd.update_joint_state()  # 放在 notify() 之後執行
-                self.control_cmd.refresh_motor()
-                self.motor_turn = True  # **切換權限給 _run_motor()**
-                self.condition.notify()  # 通知 _run_motor() 可以執行
-            
             self.control_cmd.update_joint_state()  # 放在 notify() 之後執行
 
-            count += 4
-            elapsed_time = time.time() - prev_time
-            if elapsed_time >= 1.0:
-                print(f"Motor reading frequency: {count} Hz")
-                count = 0
-                prev_time = time.time()
+            count_read += 1
+            elapsed_time_read = time.time() - prev_time_read
+            if elapsed_time_read >= 1.0:
+                print(f"Motor reading frequency: {count_read} Hz")
+                count_read = 0
+                prev_time_read = time.time()
+            time.sleep(0.005)
 
     def run(self):
         if not self.Is_Run:

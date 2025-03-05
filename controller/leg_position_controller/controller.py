@@ -1,15 +1,19 @@
 import rclpy
 from rclpy.node import Node
 from sensor_msgs.msg import JointState
-from std_msgs.msg import String
+from std_msgs.msg import String, Float32MultiArray
 import numpy as np
 import time
 
 class MotorController(Node):
     def __init__(self):
         super().__init__('motor_controller')
+        
         # Publisher for JointState
         self.publisher_ = self.create_publisher(JointState, 'joint_states', 10)
+        # Publisher for Kp and Kq
+        self.kp_kq_publisher_ = self.create_publisher(Float32MultiArray, 'pid_gain', 10)
+        
         # Subscriber for commands
         self.subscription = self.create_subscription(
             String,
@@ -17,7 +21,9 @@ class MotorController(Node):
             self.command_callback,
             10
         )
+        
         self.timer = self.create_timer(0.05, self.publish_joint_states)
+        self.publish_kp_kq = self.create_timer(0.1, self.publish_kp_kq)
 
         self.initial_joint_angles = np.array([
             [2.7, -2.7, -2.7, 2.7],  # Lower leg
@@ -104,9 +110,13 @@ class MotorController(Node):
         ]
         msg.position = self.current_angles.flatten().tolist()
         msg.velocity = []
-        msg.effort = [float(self.kp), float(self.kq)] + [0.0] * 10
-
+        msg.effort = []
         self.publisher_.publish(msg)
+    
+    def publish_kp_kq(self):
+        msg = Float32MultiArray()
+        msg.data = [float(self.kp), float(self.kq)]
+        self.kp_kq_publisher_.publish(msg)
 
 def main(args=None):
     rclpy.init(args=args)
